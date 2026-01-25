@@ -3,11 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from storage import add_event, get_events, get_all_students
 from yolo import detect_objects
-
+import time
 import subprocess
 import tempfile
 import os
-import time
 
 app = FastAPI()
 
@@ -34,19 +33,23 @@ class ProctorEvent(BaseModel):
     timestamp: int
     type: str
     severity: str
+    confidence: float | None = None
 
 class RunCodeRequest(BaseModel):
     language: str
     code: str
 
 # =========================
-# PROCTORING ENDPOINTS
+# BASIC PROCTOR EVENTS
 # =========================
 @app.post("/log_event")
 def log_event(event: ProctorEvent):
     add_event(event.studentId, event.dict())
     return {"status": "ok"}
 
+# =========================
+# ADMIN APIs
+# =========================
 @app.get("/admin/students")
 def list_students():
     return get_all_students()
@@ -71,16 +74,21 @@ def detect_objects_api(payload: dict = Body(...)):
 
     detections = detect_objects(image, student_id)
 
+    now = int(time.time() * 1000)
+
+    # 🔥 IMPORTANT: save every detection as ADMIN EVENT
     for d in detections:
         add_event(student_id, {
             "studentId": student_id,
-            "timestamp": int(time.time() * 1000),
-            "type": d["type"],
+            "timestamp": now,
+            "type": d["type"],               # phone_detected, book_detected, etc
             "severity": "high",
             "confidence": d.get("confidence", 0),
         })
 
-    return {"detections": detections}
+    return {
+        "detections": detections
+    }
 
 # =========================
 # MULTI-LANGUAGE CODE RUNNER

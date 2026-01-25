@@ -4,7 +4,7 @@ interface ProctorEvent {
   timestamp: number;
   type: string;
   severity: string;
-  confidence?: number;
+  confidence?: number | null;
 }
 
 export default function AdminDashboard({
@@ -17,54 +17,50 @@ export default function AdminDashboard({
   const [events, setEvents] = useState<ProctorEvent[]>([]);
 
   // =========================
-  // AUTO‑REFRESH STUDENTS
+  // LOAD STUDENTS
   // =========================
   useEffect(() => {
-    const loadStudents = () => {
-      fetch("http://localhost:8000/admin/students")
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setStudents(data);
-          } else {
-            setStudents(Object.keys(data));
-          }
-        })
-        .catch(() => {});
+    const loadStudents = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/admin/students");
+        const data = await res.json();
+        setStudents(Array.isArray(data) ? data : Object.keys(data));
+      } catch (err) {
+        console.error("Failed to load students", err);
+      }
     };
 
-    loadStudents(); // initial load
-    const interval = setInterval(loadStudents, 2000); // every 2s
-
+    loadStudents();
+    const interval = setInterval(loadStudents, 2000);
     return () => clearInterval(interval);
   }, []);
 
   // =========================
-  // AUTO‑REFRESH EVENTS
+  // LOAD EVENTS
   // =========================
   useEffect(() => {
     if (!selectedStudent) return;
 
-    const loadEvents = () => {
-      fetch(
-        `http://localhost:8000/admin/students/${selectedStudent}/events`
-      )
-        .then((res) => res.json())
-        .then(setEvents)
-        .catch(() => {});
+    const loadEvents = async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:8000/admin/students/${selectedStudent}/events`
+        );
+        const data = await res.json();
+        setEvents(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to load events", err);
+      }
     };
 
-    loadEvents(); // initial load
-    const interval = setInterval(loadEvents, 2000); // every 2s
-
+    loadEvents();
+    const interval = setInterval(loadEvents, 2000);
     return () => clearInterval(interval);
   }, [selectedStudent]);
 
   return (
     <div style={{ display: "flex", height: "100vh" }}>
-      {/* =========================
-          LEFT PANEL — STUDENTS
-      ========================= */}
+      {/* LEFT PANEL */}
       <div
         style={{
           width: 260,
@@ -87,8 +83,7 @@ export default function AdminDashboard({
               padding: 8,
               marginBottom: 6,
               cursor: "pointer",
-              background:
-                selectedStudent === s ? "#e0f2fe" : "transparent",
+              background: selectedStudent === s ? "#e0f2fe" : "transparent",
               borderRadius: 4,
             }}
           >
@@ -101,17 +96,13 @@ export default function AdminDashboard({
         </button>
       </div>
 
-      {/* =========================
-          RIGHT PANEL — EVENTS
-      ========================= */}
+      {/* RIGHT PANEL */}
       <div style={{ flex: 1, padding: 16 }}>
         <h3>Live Proctoring Timeline</h3>
 
         {!selectedStudent && <p>Select a student</p>}
 
-        {selectedStudent && events.length === 0 && (
-          <p>No events yet</p>
-        )}
+        {selectedStudent && events.length === 0 && <p>No events yet</p>}
 
         {events
           .slice()
@@ -129,16 +120,16 @@ export default function AdminDashboard({
                     ? "orange"
                     : "green"
                 }`,
-                background: "#ffffff",
+                background: "#fff",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
               }}
             >
               <strong>{e.type}</strong>
-              <div>
-                {new Date(e.timestamp).toLocaleTimeString()}
-              </div>
+              <div>{new Date(e.timestamp).toLocaleTimeString()}</div>
               <div>Severity: {e.severity}</div>
-              {e.confidence !== undefined && (
+
+              {/* ✅ SAFE CONFIDENCE DISPLAY */}
+              {typeof e.confidence === "number" && (
                 <div>Confidence: {e.confidence.toFixed(2)}</div>
               )}
             </div>
