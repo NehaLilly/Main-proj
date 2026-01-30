@@ -1,18 +1,16 @@
+print("🔥🔥🔥 THIS MAIN.PY IS RUNNING 🔥🔥🔥")
+
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import time
+
 from storage import add_event, get_events, get_all_students
 from yolo import detect_objects
-import time
-import subprocess
-import tempfile
-import os
+from mediapipe_alerts import process_frame
 
 app = FastAPI()
 
-# =========================
-# CORS CONFIG
-# =========================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -25,9 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
-# MODELS
-# =========================
+# ================= MODELS =================
 class ProctorEvent(BaseModel):
     studentId: str
     timestamp: int
@@ -35,21 +31,13 @@ class ProctorEvent(BaseModel):
     severity: str
     confidence: float | None = None
 
-class RunCodeRequest(BaseModel):
-    language: str
-    code: str
-
-# =========================
-# BASIC PROCTOR EVENTS
-# =========================
+# ================= BASIC EVENT =================
 @app.post("/log_event")
 def log_event(event: ProctorEvent):
     add_event(event.studentId, event.dict())
     return {"status": "ok"}
 
-# =========================
-# ADMIN APIs
-# =========================
+# ================= ADMIN =================
 @app.get("/admin/students")
 def list_students():
     return get_all_students()
@@ -58,92 +46,46 @@ def list_students():
 def student_events(student_id: str):
     return get_events(student_id)
 
-# =========================
-# YOLO OBJECT DETECTION
-# =========================
+# ================= YOLO =================
 @app.post("/detect_objects")
 def detect_objects_api(payload: dict = Body(...)):
-    """
-    payload = {
-        studentId: str,
-        image: base64_string
-    }
-    """
     student_id = payload["studentId"]
     image = payload["image"]
 
     detections = detect_objects(image, student_id)
-
     now = int(time.time() * 1000)
 
-    # 🔥 IMPORTANT: save every detection as ADMIN EVENT
     for d in detections:
         add_event(student_id, {
             "studentId": student_id,
             "timestamp": now,
-            "type": d["type"],               # phone_detected, book_detected, etc
+            "type": d["type"],
             "severity": "high",
             "confidence": d.get("confidence", 0),
         })
 
-    return {
-        "detections": detections
-    }
+    return {"detections": detections}
 
-# =========================
-# MULTI-LANGUAGE CODE RUNNER
-# =========================
-@app.post("/run")
-def run_code(req: RunCodeRequest):
-    with tempfile.TemporaryDirectory() as tmp:
-        try:
-            if req.language == "python":
-                path = os.path.join(tmp, "main.py")
-                open(path, "w").write(req.code)
-                cmd = ["python", path]
+# ================= MEDIAPIPE =================
+@app.post("/mediapipe_detect")
+def mediapipe_detect(payload: dict = Body(...)):
+    student_id = payload["studentId"]
+    image = payload["image"]
 
-            elif req.language == "javascript":
-                path = os.path.join(tmp, "main.js")
-                open(path, "w").write(req.code)
-                cmd = ["node", path]
+    events = process_frame(image, student_id)
 
-            elif req.language == "c":
-                src = os.path.join(tmp, "main.c")
-                exe = os.path.join(tmp, "a.out")
-                open(src, "w").write(req.code)
-                subprocess.run(["gcc", src, "-o", exe], check=True)
-                cmd = [exe]
+    # 🔥🔥🔥 ADD THIS LINE (VERY IMPORTANT)
+    print("🚨 MEDIAPIPE EVENTS:", events)
 
-            elif req.language == "cpp":
-                src = os.path.join(tmp, "main.cpp")
-                exe = os.path.join(tmp, "a.out")
-                open(src, "w").write(req.code)
-                subprocess.run(["g++", src, "-o", exe], check=True)
-                cmd = [exe]
+    now = int(time.time() * 1000)
 
-            elif req.language == "java":
-                src = os.path.join(tmp, "Main.java")
-                open(src, "w").write(req.code)
-                subprocess.run(["javac", src], check=True)
-                cmd = ["java", "-cp", tmp, "Main"]
+    for e in events:
+        add_event(student_id, {
+            "studentId": student_id,
+            "timestamp": now,
+            "type": e["type"],
+            "severity": "medium",
+            "confidence": e.get("confidence"),
+        })
 
-            else:
-                return {"stderr": "Unsupported language"}
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-
-            return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exitCode": result.returncode,
-            }
-
-        except subprocess.TimeoutExpired:
-            return {"stderr": "Execution timed out"}
-        except Exception as e:
-            return {"stderr": str(e)}
+    return {"events": events}
